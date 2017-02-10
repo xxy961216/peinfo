@@ -57,10 +57,10 @@ def diasm_file(argv):
 
 def hexDump(data,argv):
 	print;print "\t\t------->Hex Dump<-------";print
-	data = re.findall('..?', data[:304])
-	bad_chars = ["0a", "0d", "09", "0b"]
+	data = re.findall('..?', data[:304])	# 304 max just for reference
+	# bad_chars = ["0a", "0d", "09", "0b"]
 	byte_line = ""
-	char_line = ""
+	# char_line = ""
 	total_count = 0
 	line_count = 1
 	print "Offset(h) 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n"
@@ -70,11 +70,11 @@ def hexDump(data,argv):
 			if total_count >= 0:
 				if line_count <= 16:
 					byte_line += " "+byte
-					if byte in bad_chars:
-						char_line += "."
-					else:
-						byte = binascii.unhexlify(byte)
-						char_line += " "+byte
+					# if byte in bad_chars:
+					# 	char_line += "."
+					# else:
+					# 	byte = binascii.unhexlify(byte)
+					# 	char_line += " "+byte
 					line_count += 1
 				else:
 					offset = hex(int(argv[4]) + total_count - 16)
@@ -82,8 +82,9 @@ def hexDump(data,argv):
 					print offset + " "*printspace + byte_line 
 					line_count = 1
 					byte_line = ""
-					char_line = ""
-		total_count += 1  
+					# char_line = ""
+					total_count -= 1 # to fix incorrect offset issue
+		total_count += 1
 	
 	# print any remaining bytes 
 	if byte_line != "":
