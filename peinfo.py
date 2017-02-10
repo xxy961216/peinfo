@@ -1,20 +1,23 @@
 import struct,json
 from collections import OrderedDict
 from datetime import datetime 
+from sys import argv
+from capstone import *
+import re,binascii
+
 
 MachineTypes = {'0x0': 'AnyMachineType','0x1d3': 'Matsushita AM33','0x8664': 'AMD64 (x64)','0x1c0': 'ARM LE',
-                '0x1c4': 'ARMv7','0xaa64': 'ARMv8 x64','0xebc': 'EFIByteCode','0x14c': 'Intel x86',
-                '0x200': 'Intel Itanium','0x9041': 'M32R','0x266': 'MIPS16','0x366': 'MIPS w/FPU',
-                '0x466': 'MIPS16 w/FPU','0x1f0': 'PowerPC LE','0x1f1': 'PowerPC w/FP','0x166': 'MIPS LE',
-                '0x1a2': 'Hitachi SH3','0x1a3': 'Hitachi SH3 DSP','0x1a6': 'Hitachi SH4','0x1a8': 'Hitachi SH5',
-                '0x1c2': 'ARM or Thumb -interworking','0x169': 'MIPS little-endian WCE v2'
-                }
+				'0x1c4': 'ARMv7','0xaa64': 'ARMv8 x64','0xebc': 'EFIByteCode','0x14c': 'Intel x86',
+				'0x200': 'Intel Itanium','0x9041': 'M32R','0x266': 'MIPS16','0x366': 'MIPS w/FPU',
+				'0x466': 'MIPS16 w/FPU','0x1f0': 'PowerPC LE','0x1f1': 'PowerPC w/FP','0x166': 'MIPS LE',
+				'0x1a2': 'Hitachi SH3','0x1a3': 'Hitachi SH3 DSP','0x1a6': 'Hitachi SH4','0x1a8': 'Hitachi SH5',
+				'0x1c2': 'ARM or Thumb -interworking','0x169': 'MIPS little-endian WCE v2'
+				}
 
 ArchTypes = {"0x10b":"32","0x20b":"64"}
 ImageHeaderSignatures = {"0x10b":"PE32","0x20b":"PE64"}
 
 pInfo = OrderedDict()
-flItms = {}
 
 class peinfo():
 	def __init__(self,FILE=None,ARCH=None,MACHINE=None,SECTIONS=None,PE_SIG=None,OFFSET=None):
@@ -22,11 +25,17 @@ class peinfo():
 			self.binary = FILE
 		else:
 			self.binary = file(FILE,"rb")
+		self.FILE = FILE
 		self.ARCH = ARCH
 		self.MACHINE = MACHINE
 		self.SECTIONS = SECTIONS
 		self.PE_SIG = PE_SIG
 		self.OFFSET = OFFSET
+
+
+	def __repr__(self):
+		self.overview()
+		return self.json()
 
 
 	def parseCharacteristics(self,xbyte,typez=None):
@@ -106,9 +115,10 @@ class peinfo():
 	def convert_hex_to_ascii(self,h):
 		chars = []
 		while h != 0x0:
-		    chars.append(chr(h & 0xFF))
-		    h = h >> 8
+			chars.append(chr(h & 0xFF))
+			h = h >> 8
 		return ''.join(chars)
+
 
 	#function shamelessly taken from thebackdoor-factory with some modifications
 	#https://github.com/secretsquirrel/the-backdoor-factory/blob/master/pebin.py#L924
@@ -151,31 +161,31 @@ class peinfo():
 				sectionStart = int(pInfo['SECTIONS'][section]['RawAddress']['value'],16)
 				sectionEnd = sectionStart + sectionSize
 				caveLength = caves[1] - caves[0]
- 				if caves[0] >= sectionStart and caves[1] <= sectionEnd and SIZE_CAVE_TO_FIND <= caveLength:
- 					data = OrderedDict()
- 					data['CaveStart'] = hex(caves[0])
- 					data['CaveEnd'] = hex(caves[1])
- 					data['CaveLength'] = caveLength
- 					try:
-	 					if isinstance(pInfo['CAVES']['INSIDE_SECTION'][section],list):
-	 						pass
- 					except KeyError:
- 						pInfo['CAVES']['INSIDE_SECTION'][section] = []
- 					pInfo['CAVES']['INSIDE_SECTION'][section].append(data)
+				if caves[0] >= sectionStart and caves[1] <= sectionEnd and SIZE_CAVE_TO_FIND <= caveLength:
+					data = OrderedDict()
+					data['CaveStart'] = hex(caves[0])
+					data['CaveEnd'] = hex(caves[1])
+					data['CaveLength'] = caveLength
+					try:
+						if isinstance(pInfo['CAVES']['INSIDE_SECTION'][section],list):
+							pass
+					except KeyError:
+						pInfo['CAVES']['INSIDE_SECTION'][section] = []
+					pInfo['CAVES']['INSIDE_SECTION'][section].append(data)
 					sectionFound = True
 					break
 			if sectionFound is False:
 				try:
 					data = OrderedDict()
- 					data['CaveStart'] = hex(caves[0])
- 					data['CaveEnd'] = hex(caves[1])
- 					data['CaveLength'] = caves[1] - caves[0]
+					data['CaveStart'] = hex(caves[0])
+					data['CaveEnd'] = hex(caves[1])
+					data['CaveLength'] = caves[1] - caves[0]
 					try:
-	 					if isinstance(pInfo['CAVES']['OUTSIDE_SECTION'],list):
-	 						pass
- 					except KeyError:
- 						pInfo['CAVES']['OUTSIDE_SECTION'] = []
- 					pInfo['CAVES']['OUTSIDE_SECTION'].append(data)
+						if isinstance(pInfo['CAVES']['OUTSIDE_SECTION'],list):
+							pass
+					except KeyError:
+						pInfo['CAVES']['OUTSIDE_SECTION'] = []
+					pInfo['CAVES']['OUTSIDE_SECTION'].append(data)
 				except Exception as e:
 					pass
 		pInfo['CAVES']['TOTAL'] = len(caveTracker)
@@ -339,7 +349,6 @@ class peinfo():
 				pInfo['IMPORT_TABLES']['Flags'] = self.parseCharacteristics(self.structer('<I',True)['value'],4)
 				pInfo['IMPORT_TABLES']['EntryPointToken'] = self.structer('<I',True)
 
-
 		return 'Valid %s binary found' % (ImageHeaderSignatures[str(self.PE_SIG)])
 
 
@@ -464,12 +473,108 @@ class peinfo():
 				pInfo['Sections'][name] = data
 
 
-# a = peinfo("/Users/username/Desktop/pe.exe")
+	def disasm_shellcode(self,shellcode=None,mode=None):
+		CODE = shellcode.replace(' ','').replace('\\x', '').decode('hex')
+		if not mode:
+			mode = ArchTypes[self.PE_SIG]
 
-#a.checkBinary()
-#a.find_all_caves()
+		print '\t\t------>Disassembly<------\n'
 
-#print a.json()
+		ARCH = {
+			'all'   : CS_ARCH_ALL,
+			'arm'   : CS_ARCH_ARM,
+			'arm64' : CS_ARCH_ARM64,
+			'mips'  : CS_ARCH_MIPS,
+			'ppc'   : CS_ARCH_PPC,
+			'x86'   : CS_ARCH_X86,
+			'xcore' : CS_ARCH_XCORE
+		}
 
-#a.printOut()
+		MODE = {
+			'16'    : CS_MODE_16, 
+			'32'    : CS_MODE_32,
+			'64'    : CS_MODE_64,
+			'arm'   : CS_MODE_ARM,
+			'be'    : CS_MODE_BIG_ENDIAN,
+			'le'    : CS_MODE_LITTLE_ENDIAN,
+			'micro' : CS_MODE_MICRO,
+			'thumb' : CS_MODE_THUMB
+		}
+
+		md = Cs(ARCH["x86"], MODE[mode])
+		for i in md.disasm(CODE, 1):
+			print '0x%x:\t%s\t%s' % (i.address, i.mnemonic, i.op_str)
+
+
+	def diasm_file(self,section=None,startOffset=None,endOffset=None,length=None):
+		file = self.FILE
+		if endOffset:
+			length = int(endOffset) - int(startOffset)
+		bytez = int(length)
+		seek = int(startOffset)
+
+		# Open, and read bytes out of the file,
+		with open(file,'rb') as f:
+				if seek:
+					f.seek(seek)
+				buffer = f.read(bytez)
+
+		# Iterate through the buffer and disassemble 
+		buffer = binascii.hexlify(buffer)
+		self.hexDump(buffer)
+		self.disasm_shellcode(shellcode=buffer)
+
+
+	def hexDump(self,data,bytez=0):
+		print;print "\t\t------->Hex Dump<-------";print
+		data = re.findall('..?', data[:304])	# 304 max just for reference
+		# bad_chars = ["0a", "0d", "09", "0b"]
+		byte_line = ""
+		# char_line = ""
+		total_count = 0
+		line_count = 1
+		print "Offset(h) 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n"
+		# print bytes, 16 at a time in both hex and ascii values
+		for byte in data:
+			if total_count <= len(data):
+				if total_count >= 0:
+					if line_count <= 16:
+						byte_line += " "+byte
+						# if byte in bad_chars:
+						# 	char_line += "."
+						# else:
+						# 	byte = binascii.unhexlify(byte)
+						# 	char_line += " "+byte
+						line_count += 1
+					else:
+						offset = hex(int(bytez) + total_count - 16)
+						printspace = 9 - len(offset)
+						print offset + " "*printspace + byte_line 
+						line_count = 1
+						byte_line = ""
+						# char_line = ""
+						total_count -= 1 
+			total_count += 1
+		
+		# print any remaining bytes 
+		if byte_line != "":
+			spacers = 48 - len(byte_line)
+			print hex(int(offset, 16) + 16) + " "*printspace + byte_line + (" " * (spacers))
+		print
+
+
+a = peinfo("/Users/username/Desktop/PE.exe")
+
+# print a
+# a.checkBinary()
+
+# a.find_all_caves()
+
+# a.diasm_file(startOffset=0x200,endOffset=0x400)
+# a.disasm_shellcode("5589e583ec18895df88b550831db89758b0231f68b003d910000c077433d8d00c0725bbe01000000c704240800000031","32")
+# a.hexDump("5589e583ec18895df88b550831db89758b0231f68b003d910000c077433d8d00c0725bbe01000000c704240800000031")
+
+# print a.json()
+
+# a.printOut()
 
