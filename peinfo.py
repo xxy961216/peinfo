@@ -24,7 +24,8 @@ class peinfo():
 		if isinstance(FILE, file):
 			self.binary = FILE
 		else:
-			self.binary = file(FILE,"rb")
+			if FILE:
+				self.binary = file(FILE,"rb")
 		self.FILE = FILE
 		self.ARCH = ARCH
 		self.MACHINE = MACHINE
@@ -76,7 +77,6 @@ class peinfo():
 		listOfDicts = [peKeyValue,subsystemKeyValue,dllKeyValue,sectionKeyValue,metaflagsKeyValue]
 		keyValue = listOfDicts[typez]
 		for value, msg in keyValue.iteritems():
-			#type 1 for subsystem flag meaning since single flag
 			if typez == 1:
 				nlist['Flag'] = xbyte
 				if (xbyte == value):
@@ -120,7 +120,7 @@ class peinfo():
 		return ''.join(chars)
 
 
-	#function shamelessly taken from thebackdoor-factory with some modifications
+	#function shamelessly taken from thebackdoor-factory with some modifications, will be changed later on
 	#https://github.com/secretsquirrel/the-backdoor-factory/blob/master/pebin.py#L924
 	def find_all_caves(self,sizeofcave=250):
 		SIZE_CAVE_TO_FIND = sizeofcave
@@ -201,17 +201,15 @@ class peinfo():
 			value = hex(struct.unpack(formatt,self.binary.read(bytez))[0]).rstrip("L")
 		else:
 			value = struct.unpack(formatt,self.binary.read(bytez))[0]
-		##### no idea why the below commented code is here :D
-		# if isinstance(special, dict):
-		# 	value = special[value]
-		# elif isinstance(special, list):
-		# 	# print 'list'
-		# 	value = special[value]
-		# elif special:
-		# 	if arg:
-		# 		value = special(value,arg)
-		# 	else:
-		# 		value = special(value)
+		if isinstance(special, dict):
+			value = special[value]
+		elif isinstance(special, list):
+			value = special[value]
+		elif special:
+			if arg:
+				value = special(value,arg)
+			else:
+				value = special(value)
 		return {'value':value,'offset':self.OFFSET,'bytes':bytez}
 
 
@@ -354,6 +352,7 @@ class peinfo():
 
 	#lazy implementation for only main info, might be fixed later on.
 	def overview(self):
+		pInfo.clear()
 		self.binary.seek(0)
 		x = struct.unpack("<H",self.binary.read(2))[0]
 		#check for valid MSDOS header sig
@@ -481,78 +480,70 @@ class peinfo():
 		print '\t\t------>Disassembly<------\n'
 
 		ARCH = {
-			'all'   : CS_ARCH_ALL,
-			'arm'   : CS_ARCH_ARM,
-			'arm64' : CS_ARCH_ARM64,
-			'mips'  : CS_ARCH_MIPS,
-			'ppc'   : CS_ARCH_PPC,
-			'x86'   : CS_ARCH_X86,
-			'xcore' : CS_ARCH_XCORE
-		}
+			# 'all':CS_ARCH_ALL, 'arm':CS_ARCH_ARM, 'arm64':CS_ARCH_ARM64, 'mips':CS_ARCH_MIPS, 'ppc':CS_ARCH_PPC, 'xcore':CS_ARCH_XCORE,
+			'x86':CS_ARCH_X86,
+			}
 
-		MODE = {
-			'16'    : CS_MODE_16, 
-			'32'    : CS_MODE_32,
-			'64'    : CS_MODE_64,
-			'arm'   : CS_MODE_ARM,
-			'be'    : CS_MODE_BIG_ENDIAN,
-			'le'    : CS_MODE_LITTLE_ENDIAN,
-			'micro' : CS_MODE_MICRO,
-			'thumb' : CS_MODE_THUMB
-		}
+		MODE = { 
+			'16':CS_MODE_16, '32':CS_MODE_32, '64':CS_MODE_64, 
+			# 'arm':CS_MODE_ARM, 'be':CS_MODE_BIG_ENDIAN, 'le':CS_MODE_LITTLE_ENDIAN, 'micro':CS_MODE_MICRO, 'thumb':CS_MODE_THUMB,
+			}
 
 		md = Cs(ARCH["x86"], MODE[mode])
 		for i in md.disasm(CODE, 1):
 			print '0x%x:\t%s\t%s' % (i.address, i.mnemonic, i.op_str)
 
 
-	def diasm_file(self,section=None,startOffset=None,endOffset=None,length=None):
+	def disasm_file(self,section=None,startOffset=None,endOffset=None,length=None,mode=str(None),inline=None):
 		file = self.FILE
 		if endOffset:
 			length = int(endOffset) - int(startOffset)
+		if section and len(section) >= 1:
+			startOffset = int(self.json(isdict=1)["SECTIONS"][section]["RawAddress"]["value"],16)
+		if pInfo:
+			mode = int(ArchTypes[self.PE_SIG])
+			if not length:
+				length = 200
+
 		bytez = int(length)
 		seek = int(startOffset)
 
-		# Open, and read bytes out of the file,
 		with open(file,'rb') as f:
 				if seek:
 					f.seek(seek)
 				buffer = f.read(bytez)
 
-		# Iterate through the buffer and disassemble 
 		buffer = binascii.hexlify(buffer)
-		self.hexDump(buffer)
-		self.disasm_shellcode(shellcode=buffer)
+		if inline:
+			print buffer[:200]
+			return
+		if section:
+			self.hexDump(buffer,bytez=seek)
+		else:
+			self.hexDump(buffer)
+		self.disasm_shellcode(shellcode=buffer,mode=str(mode))
 
 
 	def hexDump(self,data,bytez=0):
 		print;print "\t\t------->Hex Dump<-------";print
 		data = re.findall('..?', data[:304])	# 304 max just for reference
-		# bad_chars = ["0a", "0d", "09", "0b"]
 		byte_line = ""
-		# char_line = ""
 		total_count = 0
 		line_count = 1
 		print "Offset(h) 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n"
-		# print bytes, 16 at a time in both hex and ascii values
 		for byte in data:
 			if total_count <= len(data):
 				if total_count >= 0:
 					if line_count <= 16:
 						byte_line += " "+byte
-						# if byte in bad_chars:
-						# 	char_line += "."
-						# else:
-						# 	byte = binascii.unhexlify(byte)
-						# 	char_line += " "+byte
+						byte = binascii.unhexlify(byte)
 						line_count += 1
 					else:
 						offset = hex(int(bytez) + total_count - 16)
 						printspace = 9 - len(offset)
-						print offset + " "*printspace + byte_line 
+						print offset + " "*printspace + byte_line
 						line_count = 1
 						byte_line = ""
-						# char_line = ""
 						total_count -= 1 
 			total_count += 1
 		
@@ -563,18 +554,22 @@ class peinfo():
 		print
 
 
-a = peinfo("/Users/username/Desktop/PE.exe")
+x = "/Users/username/Desktop/PE.exe"
+# a = peinfo(x)
 
-# print a
 # a.checkBinary()
-
-# a.find_all_caves()
-
-# a.diasm_file(startOffset=0x200,endOffset=0x400)
-# a.disasm_shellcode("5589e583ec18895df88b550831db89758b0231f68b003d910000c077433d8d00c0725bbe01000000c704240800000031","32")
-# a.hexDump("5589e583ec18895df88b550831db89758b0231f68b003d910000c077433d8d00c0725bbe01000000c704240800000031")
+# a.overview()
 
 # print a.json()
 
-# a.printOut()
+# a.disasm_file(startOffset=0x200,length=100)
+# a.disasm_file(section=".text")
+# a.disasm_file(startOffset=0x200,length=0x400,mode=32)
 
+# a = peinfo().hexDump("5589e583ec18895df88b550831db89758b0231f68b003d910000c077433d8d00c0725bbe01000000c704240800000031")
+
+# a.find_all_caves()
+
+# a.disasm_shellcode("5589e583ec18895df88b550831db89758b0231f68b003d910000c077433d8d00c0725bbe01000000c704240800000031","32")
+
+# a.printOut()
