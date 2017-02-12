@@ -522,6 +522,11 @@ class peinfo():
 		else:
 			self.hexDump(buffer)
 		self.disasm_shellcode(shellcode=buffer,mode=str(mode))
+		
+		
+	def chunks(self,l,n):
+		n = max(1, n)
+		return (l[i:i+n] for i in xrange(0, len(l), n))
 
 
 	def hexDump(self,data,bytez=0):
