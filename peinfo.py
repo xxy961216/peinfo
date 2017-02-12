@@ -526,31 +526,14 @@ class peinfo():
 
 	def hexDump(self,data,bytez=0):
 		print;print "\t\t------->Hex Dump<-------";print
-		data = re.findall('..?', data[:304])	# 304 max just for reference
-		byte_line = ""
-		total_count = 0
-		line_count = 1
 		print "Offset(h) 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n"
-		for byte in data:
-			if total_count <= len(data):
-				if total_count >= 0:
-					if line_count <= 16:
-						byte_line += " "+byte
-						byte = binascii.unhexlify(byte)
-						line_count += 1
-					else:
-						offset = hex(int(bytez) + total_count - 16)
-						printspace = 9 - len(offset)
-						print offset + " "*printspace + byte_line
-						line_count = 1
-						byte_line = ""
-						total_count -= 1 
-			total_count += 1
-		
-		# print any remaining bytes 
-		if byte_line != "":
-			spacers = 48 - len(byte_line)
-			print hex(int(offset, 16) + 16) + " "*printspace + byte_line + (" " * (spacers))
+		data = list(self.chunks(data[:320],32))
+		offset = bytez
+		for each in data:
+			x = ' '.join(each[i:i+2] for i in range(0, len(each), 2))
+			printspace = " "*(10-len(hex(offset)))
+			print hex(offset) + printspace + x
+			offset += 16
 		print
 
 
