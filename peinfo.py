@@ -122,11 +122,9 @@ class peinfo():
 
 	#needs testing, might fail miserably, only tested with kernel32.dll
 	def exportList(self,search=None):
-		rva = pInfo["PE"]["ImageOptionalHeader"]["DirectoryStructures"]["ExportDirectoryRVA"]["value"]
+		rva = int(pInfo["PE"]["ImageOptionalHeader"]["DirectoryStructures"]["ExportDirectoryRVA"]["value"],16)
 		sections = pInfo["SECTIONS"]
-		rva = int("0x262c",16)
 		va = ""; ra = ""
-		# print sections
 		for section in sections:
 			tva = int(pInfo["SECTIONS"][section]["VirtualAddress"]["value"],16)
 			tra = int(pInfo["SECTIONS"][section]["RawAddress"]["value"],16)
@@ -151,16 +149,6 @@ class peinfo():
 		exports["AddressOfNameOrdinals"] = self.structer('<I',True)
 		s = int(exports["NumberOfFunctions"]["value"],16)
 		exportsDict = OrderedDict()
-		#functions RVAs
-		# for x in range(0,s):
-		# 	self.structer('<I',True)
-		#names RVAs
-		# for y in range(0,s):
-		# 	self.structer('<I',True)["value"]
-		# name ordinals
-		# for z in range(0,s):
-		# 	self.structer('<H',True)["value"]
-		
 		#skip function rva
 		rvaOffset = self.binary.tell()
 		self.binary.seek(self.binary.tell() + s*4)
@@ -662,7 +650,7 @@ x = "/Users/username/Desktop/PE.exe"
 
 # a.checkBinary()
 # a.overview()
-
+# a.exportList()
 # print a.exportList("lstrlenW")
 
 # print a.json()
