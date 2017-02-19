@@ -1,7 +1,7 @@
 # PEInfo
 
 PEInfo : Passive Windows Portable Executable file information parser without any external dependencies. If you dont require
-diasm function, remove capstone import and comment or remove the functions. 
+disasm function, remove capstone import and comment or remove the functions. 
 
 NOTE: Not very reliable.
 
