@@ -120,10 +120,111 @@ class peinfo():
 		return ''.join(chars)
 
 
-	#function shamelessly taken from thebackdoor-factory with some modifications, will be changed later on
-	#https://github.com/secretsquirrel/the-backdoor-factory/blob/master/pebin.py#L924
-	def find_all_caves(self,sizeofcave=250):
-		SIZE_CAVE_TO_FIND = sizeofcave
+	#needs testing, might fail miserably, only tested with kernel32.dll
+	def exportList(self,search=None):
+		rva = pInfo["PE"]["ImageOptionalHeader"]["DirectoryStructures"]["ExportDirectoryRVA"]["value"]
+		sections = pInfo["SECTIONS"]
+		rva = int("0x262c",16)
+		va = ""; ra = ""
+		# print sections
+		for section in sections:
+			tva = int(pInfo["SECTIONS"][section]["VirtualAddress"]["value"],16)
+			tra = int(pInfo["SECTIONS"][section]["RawAddress"]["value"],16)
+			sectionEnd = tra + pInfo["SECTIONS"][section]["RawSize"]["value"]
+			if rva > tva and rva < sectionEnd:
+				va = tva; ra = tra
+				break
+		fileOffset = rva - va + ra
+		exports = OrderedDict()
+		self.binary.seek(fileOffset)
+		exports["Characteristics"] = self.structer('<I',True)
+		exports["TimeDateStamp"] = {'offset':self.binary.tell(),'bytes':4,
+				'value':datetime.fromtimestamp(int(struct.unpack("<I",self.binary.read(4))[0])).strftime('%Y-%m-%d %H:%M:%S')}
+		exports["MajorVersion"]	= self.structer('<H',True)
+		exports["MinorVersion"]	= self.structer('<H',True)
+		exports["Name"]	= self.structer('<I',True)
+		exports["Base"]	= self.structer('<I',True)
+		exports["NumberOfFunctions"] = self.structer('<I',True)
+		exports["NumberOfNames"] = self.structer('<I',True)
+		exports["AddressOfFunctions"] = self.structer('<I',True)
+		exports["AddressOfNames"] = self.structer('<I',True)
+		exports["AddressOfNameOrdinals"] = self.structer('<I',True)
+		s = int(exports["NumberOfFunctions"]["value"],16)
+		exportsDict = OrderedDict()
+		#functions RVAs
+		# for x in range(0,s):
+		# 	self.structer('<I',True)
+		#names RVAs
+		# for y in range(0,s):
+		# 	self.structer('<I',True)["value"]
+		# name ordinals
+		# for z in range(0,s):
+		# 	self.structer('<H',True)["value"]
+		
+		#skip function rva
+		rvaOffset = self.binary.tell()
+		self.binary.seek(self.binary.tell() + s*4)
+		#skip name rva
+		self.binary.seek(self.binary.tell() + s*4)
+		#skip ordinals
+		self.binary.seek(self.binary.tell() + s*2)
+		namelist = []; libname = None ;tempname = ""
+		counter = 0; lastPos = 0
+		while True:
+			byte = self.binary.read(1)
+			if byte != "\x00":
+				tempname += byte
+			else:
+				if counter != 0:
+					lastPos = self.binary.tell()
+					self.binary.seek(rvaOffset)
+					rvaOffset += 4
+					addr = self.structer('<I',True)["value"]
+					exportsDict.update({tempname:addr})
+					self.binary.seek(lastPos)
+				else:
+					libname = tempname
+				tempname = ""; counter += 1
+				if counter > s:
+					break
+		if search:
+			try:
+				addr = int(pInfo["PE"]["ImageOptionalHeader"]["ImageBase"]["value"],16) + int(exportsDict[search],16)
+				return hex(addr)
+			except KeyError:
+				return None
+		exports["ExportsList"] = exportsDict
+		pInfo["ExportDirectory"] = exports
+
+
+	# temp experimental method, much slower than the other one but better,,,, BROKEN
+	def findCaves(self,size=500):
+		s = open(self.FILE,"rb")
+		start = 0
+		end = 0
+		cave = ""
+		caveList = []
+		while True:
+			if not start:
+				start = s.tell()
+			a = binascii.hexlify(s.read(1))
+			if a == "00":
+				cave += a
+			else:
+				bytez = len(cave)/2
+				end = s.tell()-1
+				if bytez >= size:
+					caveList.append({"start":hex(start),"end":hex(end),"size":end-start})
+				cave = start = end= ""
+			if not a:
+				break
+		return caveList
+
+
+	# function shamelessly taken from thebackdoor-factory with some modifications, will be changed later on
+	# https://github.com/secretsquirrel/the-backdoor-factory/blob/master/pebin.py#L924
+	def find_all_caves(self,size=250):
+		SIZE_CAVE_TO_FIND = size
 		BeginCave = 0
 		Tracking = 0
 		count = 1
@@ -145,6 +246,7 @@ class peinfo():
 					caveSpecs.append(BeginCave)
 					caveSpecs.append(Tracking)
 					caveTracker.append(caveSpecs)
+					print caveSpecs
 				count = 1
 				caveSpecs = []
 
@@ -472,6 +574,11 @@ class peinfo():
 				pInfo['Sections'][name] = data
 
 
+	def print_string_hex(self, str):
+		for c in str:
+			return "0x%02x " % (c)
+
+		
 	def disasm_shellcode(self,shellcode=None,mode=None):
 		CODE = shellcode.replace(' ','').replace('\\x', '').decode('hex')
 		if not mode:
@@ -490,8 +597,15 @@ class peinfo():
 			}
 
 		md = Cs(ARCH["x86"], MODE[mode])
-		for i in md.disasm(CODE, 1):
-			print '0x%x:\t%s\t%s' % (i.address, i.mnemonic, i.op_str)
+		ss = md.disasm(CODE, 1)
+		md.detail = True
+		for i in ss:
+			a = ""
+			for z in i.opcode:
+				if hex(z) != "0x0":
+					a += hex(z).replace('0x','')
+			print '0x%x:\t%s      \t%s %s' % (i.address, a+hex(i.modrm).replace('0x','').replace('0',''),i.mnemonic, i.op_str)
+			a=""
 
 
 	def disasm_file(self,section=None,startOffset=None,endOffset=None,length=None,mode=str(None),inline=None):
@@ -522,14 +636,15 @@ class peinfo():
 		else:
 			self.hexDump(buffer)
 		self.disasm_shellcode(shellcode=buffer,mode=str(mode))
-		
-		
+
+
 	def chunks(self,l,n):
 		n = max(1, n)
 		return (l[i:i+n] for i in xrange(0, len(l), n))
 
 
-	def hexDump(self,data,bytez=0):
+	def hexDump(self,data,bytez=0,section=None):
+		
 		print;print "\t\t------->Hex Dump<-------";print
 		print "Offset(h) 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n"
 		data = list(self.chunks(data[:320],32))
@@ -547,6 +662,8 @@ x = "/Users/username/Desktop/PE.exe"
 
 # a.checkBinary()
 # a.overview()
+
+# print a.exportList("lstrlenW")
 
 # print a.json()
 
