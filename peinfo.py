@@ -1,4 +1,25 @@
 
+import struct,json
+from collections import OrderedDict
+from datetime import datetime 
+from sys import argv
+from capstone import *
+import re,binascii
+
+
+MachineTypes = {'0x0': 'AnyMachineType','0x1d3': 'Matsushita AM33','0x8664': 'AMD64 (x64)','0x1c0': 'ARM LE',
+				'0x1c4': 'ARMv7','0xaa64': 'ARMv8 x64','0xebc': 'EFIByteCode','0x14c': 'Intel x86',
+				'0x200': 'Intel Itanium','0x9041': 'M32R','0x266': 'MIPS16','0x366': 'MIPS w/FPU',
+				'0x466': 'MIPS16 w/FPU','0x1f0': 'PowerPC LE','0x1f1': 'PowerPC w/FP','0x166': 'MIPS LE',
+				'0x1a2': 'Hitachi SH3','0x1a3': 'Hitachi SH3 DSP','0x1a6': 'Hitachi SH4','0x1a8': 'Hitachi SH5',
+				'0x1c2': 'ARM or Thumb -interworking','0x169': 'MIPS little-endian WCE v2'
+				}
+
+ArchTypes = {"0x10b":"32","0x20b":"64"}
+ImageHeaderSignatures = {"0x10b":"PE32","0x20b":"PE64"}
+
+pInfo = OrderedDict()
+
 class peinfo():
 	def __init__(self,FILE=None,ARCH=None,MACHINE=None,SECTIONS=None,PE_SIG=None,OFFSET=None):
 		if isinstance(FILE, file):
@@ -101,7 +122,7 @@ class peinfo():
 
 
 	#needs testing, might fail miserably, only tested with kernel32.dll
-	def exportList(self,search=None):
+	def exportList(self,search=None,ords=False):
 		rva = int(pInfo["PE"]["ImageOptionalHeader"]["DirectoryStructures"]["ExportDirectoryRVA"]["value"],16)
 		sections = pInfo["SECTIONS"]
 		va = ""; ra = ""
@@ -131,64 +152,46 @@ class peinfo():
 		nFuncs = int(exports["NumberOfFunctions"]["value"],16)
 		nNames = int(exports["NumberOfNames"]["value"],16)
 		exportsDict = OrderedDict()
-		
-		rvaOffset = self.binary.tell()
-		if nFuncs == nNames:
-			self.binary.seek(self.binary.tell() + nFuncs*(4+4+2))
-			namelist = []; libname = None ;tempname = ""
-			counter = 0; lastPos = 0
-			while True:
-				byte = self.binary.read(1)
-				if byte != "\x00":
-					tempname += byte
-				else:
-					if counter != 0:
-						lastPos = self.binary.tell()
-						self.binary.seek(rvaOffset)
-						rvaOffset += 4
-						addr = self.structer('<I',True)["value"]
-						exportsDict.update({tempname:addr})
-						self.binary.seek(lastPos)
+		nameFileOffset = {}
+		funcrva = []
+		ordDict = {}
+		#storing all function RVAs
+		for x in range(0,nFuncs):
+			e = self.structer('<I',True)["value"]
+			funcrva.append(e)
+		#storing all name RVAs
+		for y in range(0,nNames):
+			rva = self.structer('<I',False)["value"]
+			fileOffset = rva - va + ra
+			nameFileOffset.update({y:fileOffset})
+		#storing all ordinals
+		nOrds = nFuncs - (nFuncs - nNames)
+		for z in range(0,nOrds):	
+			ordinal = self.structer('<H',False)["value"]
+			ordDict.update({ordinal:hex(nameFileOffset[z])})
+		for u in range(len(funcrva)):
+			try:
+				tempname = ""
+				self.binary.seek(int(ordDict[u],16))
+				while True:
+					byte = self.binary.read(1)
+					if byte != "\x00":
+						tempname += byte
 					else:
-						libname = tempname
-					tempname = ""; counter += 1
-					if counter > nNames:
 						break
-		else:
-			nameFileOffset = {}
-			funcrva = []
-			ordDict = {}
-			#storing all function RVAs
-			for x in range(0,nFuncs):
-				e = self.structer('<I',True)["value"]
-				funcrva.append(e)
-			#storing all name RVAs
-			for y in range(0,nNames):
-				rva = self.structer('<I',False)["value"]
-				fileOffset = rva - va + ra
-				nameFileOffset.update({y:fileOffset})
-			#storing all ordinals
-			nOrds = nFuncs - (nFuncs - nNames)
-			for z in range(0,nOrds):	
-				ordinal = self.structer('<H',False)["value"]
-				ordDict.update({ordinal:hex(nameFileOffset[z])})
-			for u in range(len(funcrva)):
-				try:
-					tempname = ""
-					self.binary.seek(int(ordDict[u],16))
-					while True:
-						byte = self.binary.read(1)
-						if byte != "\x00":
-							tempname += byte
-						else:
-							break
+				if ords:
 					exportsDict.update({tempname:[funcrva[u],hex(u)]})
-				except KeyError:
-					pass
+				else:
+					exportsDict.update({tempname:funcrva[u]})
+			except KeyError:
+				pass
 
 		if search:
 			try:
-				addr = int(pInfo["PE"]["ImageOptionalHeader"]["ImageBase"]["value"],16) + int(exportsDict[search][0],16)
+				if ords:
+					addr = int(pInfo["PE"]["ImageOptionalHeader"]["ImageBase"]["value"],16) + int(exportsDict[search][0],16)
+				else:
+					addr = int(pInfo["PE"]["ImageOptionalHeader"]["ImageBase"]["value"],16) + int(exportsDict[search],16)
 				return hex(addr)
 			except KeyError:
 				return None
