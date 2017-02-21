@@ -130,7 +130,7 @@ class peinfo():
 			tva = int(pInfo["SECTIONS"][section]["VirtualAddress"]["value"],16)
 			tra = int(pInfo["SECTIONS"][section]["RawAddress"]["value"],16)
 			sectionEnd = tra + pInfo["SECTIONS"][section]["RawSize"]["value"]
-			if rva > tva and rva < sectionEnd:
+			if rva >= tva and rva <= sectionEnd:
 				va = tva; ra = tra
 				break
 		fileOffset = rva - va + ra
