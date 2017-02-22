@@ -52,4 +52,4 @@ def findBadChars(buffer=None,buftype=None):
 			pass
 	if len(badchars) == 0:
 		return "None found"
-	return badchars
+	return badchars 
