@@ -23,21 +23,7 @@ allchars = 	(
 
 # gotta remove EOF chars from copied chars in windows atleast. Must start from the first char 
 # otherwise will report all as bad.
-def findBadChars(buffer=None,buftype=None):
-	if buftype == "stack" or buftype == "memory":
-		buffer = buffer.split("\n")
-		raw = ""
-		for s in buffer:
-			try:
-				if buftype == "stack":
-					d = re.search('\s'+"."*10,s).group().strip()
-					raw += d
-				elif buftype == "memory":
-					d = re.search('\s'+"."*48,s).group().strip()
-					raw += d
-			except AttributeError:
-				pass
-		buffer = raw
+def findBadChars(buffer=None):
 	buffer =  buffer.replace(" ","").replace("\n","")
 	buffer = binascii.unhexlify(buffer)
 
