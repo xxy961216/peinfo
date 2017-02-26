@@ -1,4 +1,3 @@
-
 import struct,json
 from collections import OrderedDict
 from datetime import datetime 
@@ -121,22 +120,35 @@ class peinfo():
 		return ''.join(chars)
 
 
-	#needs testing, might fail miserably, only tested with kernel32.dll
-	def exportList(self,search=None,ords=False):
-		rva = int(pInfo["PE"]["ImageOptionalHeader"]["DirectoryStructures"]["ExportDirectoryRVA"]["value"],16)
-		sections = pInfo["SECTIONS"]
-		va = ""; ra = ""
-		for section in sections:
+	def fileOffset(self,rva,section=None):
+		if section:
 			tva = int(pInfo["SECTIONS"][section]["VirtualAddress"]["value"],16)
 			tra = int(pInfo["SECTIONS"][section]["RawAddress"]["value"],16)
 			sectionEnd = tra + pInfo["SECTIONS"][section]["RawSize"]["value"]
-			if rva >= tva and rva <= sectionEnd:
-				va = tva; ra = tra
-				break
-		fileOffset = rva - va + ra
+			offset = rva - tva + tra
+			return offset
+		else:
+			va = 0; ra = 0;
+			sections = pInfo["SECTIONS"]
+			for section in sections:
+				tva = int(pInfo["SECTIONS"][section]["VirtualAddress"]["value"],16)
+				tra = int(pInfo["SECTIONS"][section]["RawAddress"]["value"],16)
+				sectionEnd = tra + pInfo["SECTIONS"][section]["RawSize"]["value"]
+				if rva >= tva and rva <= sectionEnd:
+					va = tva; ra = tra
+					break
+			offset = rva - va + ra
+			return [offset,section]
+
+
+	#needs testing
+	def exportList(self,search=None,ords=False):
+		rva = int(pInfo["PE"]["ImageOptionalHeader"]["DirectoryStructures"]["ExportDirectoryRVA"]["value"],16)
+		offSetInfo = self.fileOffset(rva)
+		fileOffset = offSetInfo[0]
+		section = offSetInfo[1]
 		exports = OrderedDict()
 		self.binary.seek(fileOffset)
-		
 		exports["Characteristics"] = self.structer('<I',True)
 		exports["TimeDateStamp"] = {'offset':self.binary.tell(),'bytes':4,
 				'value':datetime.fromtimestamp(int(struct.unpack("<I",self.binary.read(4))[0])).strftime('%Y-%m-%d %H:%M:%S')}
@@ -162,7 +174,7 @@ class peinfo():
 		#storing all name RVAs
 		for y in range(0,nNames):
 			rva = self.structer('<I',False)["value"]
-			fileOffset = rva - va + ra
+			fileOffset = self.fileOffset(rva,section)
 			nameFileOffset.update({y:fileOffset})
 		#storing all ordinals
 		nOrds = nFuncs - (nFuncs - nNames)
@@ -199,6 +211,73 @@ class peinfo():
 		pInfo["ExportDirectory"] = exports
 
 
+	def importList(self,search=None,ords=False):
+		rva = int(pInfo["PE"]["ImageOptionalHeader"]["DirectoryStructures"]["ImportDirectoryRVA"]["value"],16)
+		size = int(pInfo["PE"]["ImageOptionalHeader"]["DirectoryStructures"]["ImportDirectorySize"]["value"],16)
+		offSetInfo = self.fileOffset(rva)
+		fileOffset = offSetInfo[0]
+		section = offSetInfo[1]
+		end = fileOffset + size
+		self.binary.seek(fileOffset)
+		n = 0; importDescriptor = []; ssd = OrderedDict()
+		while True:
+			rr = ["OriginalFirstThunk","TimeDateStamp","ForwarderChain","NameRVA","FirstThunk"]
+			z = self.structer('<I',True)["value"]
+			ssd.update({rr[n]:z})
+			n += 1
+			if self.binary.tell() >= end:
+				ssd.clear()
+				break
+			if n == 5:
+				importDescriptor.append(ssd)
+				ssd = OrderedDict()
+				n = 0
+		for imp0rt in importDescriptor:
+			rva = int(imp0rt["NameRVA"],16)
+			nameOffset = self.fileOffset(rva,section)
+			tempname = ""; 
+			self.binary.seek(nameOffset)
+			while True:
+				byte = self.binary.read(1)
+				if byte != "\x00":
+					tempname += byte
+				else:
+					break
+			imp0rt = {tempname:imp0rt}
+			oftarray = []; 
+			oftRva = int(imp0rt[tempname]["OriginalFirstThunk"],16)
+			oftFo = self.fileOffset(oftRva,section)
+			self.binary.seek(oftFo)
+			while True:
+				if self.PE_SIG == "0x20b":
+					x = self.structer('<Q',True)["value"]
+				else:
+					x = self.structer('<I',True)["value"]
+				if x == "0x0":	#chk null terminator
+					break
+				else:
+					if x[:4] != "0x80": #check if import by oridinal only or not
+						cAddr = self.binary.tell()
+						xFo = self.fileOffset(int(x,16),section)
+						self.binary.seek(xFo)
+						hint = hex(struct.unpack('<H', self.binary.read(2))[0])
+						tempname = ""
+						while True:
+							byte = self.binary.read(1)
+							if byte != "\x00":
+								tempname += byte
+							else:
+								# print oftFo,tempname
+								break
+						self.binary.seek(cAddr)
+					else:
+						tempname = ""
+						hint = x[-5:]
+						# print hint
+				oftarray.append((x,hint,tempname))
+			print json.dumps(oftarray,indent=4)
+
+
 	# temp experimental method, much slower than the other one but better,,,, BROKEN
 	def findCaves(self,size=500):
 		s = open(self.FILE,"rb")
@@ -217,7 +296,7 @@ class peinfo():
 				end = s.tell()-1
 				if bytez >= size:
 					caveList.append({"start":hex(start),"end":hex(end),"size":end-start})
-				cave = start = end= ""
+				cave = ""; start = ""; end= ""
 			if not a:
 				break
 		return caveList
@@ -585,19 +664,9 @@ class peinfo():
 		CODE = shellcode.replace(' ','').replace('\\x', '').decode('hex')
 		if not mode:
 			mode = ArchTypes[self.PE_SIG]
-
 		print '\t\t------>Disassembly<------\n'
-
-		ARCH = {
-			# 'all':CS_ARCH_ALL, 'arm':CS_ARCH_ARM, 'arm64':CS_ARCH_ARM64, 'mips':CS_ARCH_MIPS, 'ppc':CS_ARCH_PPC, 'xcore':CS_ARCH_XCORE,
-			'x86':CS_ARCH_X86,
-			}
-
-		MODE = { 
-			'16':CS_MODE_16, '32':CS_MODE_32, '64':CS_MODE_64, 
-			# 'arm':CS_MODE_ARM, 'be':CS_MODE_BIG_ENDIAN, 'le':CS_MODE_LITTLE_ENDIAN, 'micro':CS_MODE_MICRO, 'thumb':CS_MODE_THUMB,
-			}
-
+		ARCH = {'x86':CS_ARCH_X86}
+		MODE = {'16':CS_MODE_16, '32':CS_MODE_32, '64':CS_MODE_64}
 		md = Cs(ARCH["x86"], MODE[mode])
 		ss = md.disasm(CODE, 1)
 		md.detail = True
@@ -646,7 +715,6 @@ class peinfo():
 
 
 	def hexDump(self,data,bytez=0,section=None):
-		
 		print;print "\t\t------->Hex Dump<-------";print
 		print "Offset(h) 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F\n"
 		data = list(self.chunks(data[:320],32))
