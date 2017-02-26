@@ -21,8 +21,6 @@ allchars = 	(
 			)
 
 
-# gotta remove EOF chars from copied chars in windows atleast. Must start from the first char 
-# otherwise will report all as bad.
 def findBadChars(buffer=None):
 	buffer =  buffer.replace(" ","").replace("\n","")
 	buffer = binascii.unhexlify(buffer)
@@ -33,9 +31,34 @@ def findBadChars(buffer=None):
 			goodchar = allchars[a]
 			testchar = buffer[a]
 			if goodchar != testchar:
-				badchars += "\\x"+str(ord(goodchar))
+				if len(hex(ord(goodchar))) == 3:
+					badchars += "\\x0"+hex(ord(goodchar))[2]
+				else:
+					badchars += "\\"+hex(ord(goodchar))
 		except IndexError:
 			pass
 	if len(badchars) == 0:
 		return "None found"
-	return badchars 
+	return badchars
+
+
+a = '''01 02 03 B0 B0 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 1F 20
+21 22 23 24 25 26 27 28 29 2A 2B 2C 2D B0 B0 30 31 32 33 34 35 36 37 38 39 3A 3B 3C 3D 3E B0 B0
+41 42 43 44 45 46 47 48 49 4A 4B 4C 4D 4E 4F 50 51 52 53 54 55 56 57 58 59 5A 5B 5C 5D 5E 5F 60
+61 62 63 64 65 66 67 68 69 6A 6B 6C 6D 6E 6F 70 71 72 73 74 75 76 77 78 79 7A 7B 7C 7D 7E 7F 80
+81 82 83 84 85 86 87 88 89 8A 8B 8C 8D 8E 8F 90 91 92 93 B0 B0 96 97 98 99 9A 9B 9C 9D 9E 9F A0
+A1 A2 A3 A4 A5 A6 A7 A8 A9 AA AB AC AD AE AF B0 B1 B2 B3 B4 B5 B6 B7 B8 B9 BA BB BC BD BE BF B0
+B0 C2 C3 C4 C5 C6 C7 C8 C9 CA CB CC CD CE CF D0 D1 D2 D3 D4 D5 D6 D7 D8 D9 DA DB DC DD DE DF E0
+E1 E2 E3 E4 E5 E6 E7 E8 E9 EA EB EC ED EE EF F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 FA FB FC FD FE FF 0D
+0A 00 20 02 20 02 10 02 10 52 75 6E 6E 69 6E 67 00 02 10 02 00 02 00 02 02 03 10 02 28 AE C1 00
+02 03 01 03 48 02 10 02 10 02 10 02 10 02 10 02 10 02 10 02 10 02 10 02 12 03 10 02 89 00 00 00
+10 02 10 02 10 02 10 02 14 02 14 02 10 02 12 03 65 02 04 63 10 02 14 02 12 03 10 02 10 02 10 02
+02 00 04 06 01 03 01 03 65 02 04 63 01 03 01 03 01 03 01 03 26 FE FF FF C0 00 C1 00 7F 00 00 00
+00 00 C1 00 DA 01 00 00 01 03 00 00 00 00 00 00 01 03 10 02 4F 56 52 46 4C 57 20 41 41 41 41 41
+41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41
+41 41 41 41
+
+'''
+
+print findBadChars(a)
+#\x04\x05\0x2e\0x2f\0x3f\0x40\0x94\0x95\0xc0\0xc1
