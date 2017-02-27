@@ -20,7 +20,7 @@ ImageHeaderSignatures = {"0x10b":"PE32","0x20b":"PE64"}
 pInfo = OrderedDict()
 
 class peinfo():
-	def __init__(self,FILE=None,ARCH=None,MACHINE=None,SECTIONS=None,PE_SIG=None,OFFSET=None):
+	def __init__(self,FILE=None,ARCH=None,MACHINE=None,SECTIONS=None,PE_SIG=None,OFFSET=None,TYPE=None):
 		if isinstance(FILE, file):
 			self.binary = FILE
 		else:
@@ -32,6 +32,7 @@ class peinfo():
 		self.SECTIONS = SECTIONS
 		self.PE_SIG = PE_SIG
 		self.OFFSET = OFFSET
+		self.PE_TYPE = TYPE
 
 
 	def __repr__(self):
@@ -124,7 +125,6 @@ class peinfo():
 		if section:
 			tva = int(pInfo["SECTIONS"][section]["VirtualAddress"]["value"],16)
 			tra = int(pInfo["SECTIONS"][section]["RawAddress"]["value"],16)
-			sectionEnd = tra + pInfo["SECTIONS"][section]["RawSize"]["value"]
 			offset = rva - tva + tra
 			return offset
 		else:
@@ -134,17 +134,30 @@ class peinfo():
 				tva = int(pInfo["SECTIONS"][section]["VirtualAddress"]["value"],16)
 				tra = int(pInfo["SECTIONS"][section]["RawAddress"]["value"],16)
 				sectionEnd = tra + pInfo["SECTIONS"][section]["RawSize"]["value"]
-				if rva >= tva and rva <= sectionEnd:
-					va = tva; ra = tra
-					break
+				
+				try: 	# if dll file
+					self.PE_TYPE["0x2000"]
+					if rva >= tva and rva <= sectionEnd:
+						va = tva; ra = tra
+						break
+				except KeyError:	#	else for pe file
+					if rva <= tva:
+						va = tva; ra = tra
+						break
+
 			offset = rva - va + ra
 			return [offset,section]
 
 
 	#needs testing
 	def exportList(self,search=None,ords=False):
+		try: 	# if dll file
+			self.PE_TYPE["0x2000"]
+		except KeyError:	#	else for pe file
+			return
 		rva = int(pInfo["PE"]["ImageOptionalHeader"]["DirectoryStructures"]["ExportDirectoryRVA"]["value"],16)
 		offSetInfo = self.fileOffset(rva)
+		print offSetInfo
 		fileOffset = offSetInfo[0]
 		section = offSetInfo[1]
 		exports = OrderedDict()
@@ -219,7 +232,8 @@ class peinfo():
 		section = offSetInfo[1]
 		end = fileOffset + size
 		self.binary.seek(fileOffset)
-		n = 0; importDescriptor = []; ssd = OrderedDict()
+		n = 0; importDescriptor = []; ssd = OrderedDict(); nulls = 0
+		finalImportList = OrderedDict()
 		while True:
 			rr = ["OriginalFirstThunk","TimeDateStamp","ForwarderChain","NameRVA","FirstThunk"]
 			z = self.structer('<I',True)["value"]
@@ -232,23 +246,32 @@ class peinfo():
 				importDescriptor.append(ssd)
 				ssd = OrderedDict()
 				n = 0
+			if z == "0x0":
+				nulls += 1
+			else:
+				nulls = 0
+			if nulls == 4:
+				break
+
 		for imp0rt in importDescriptor:
 			rva = int(imp0rt["NameRVA"],16)
 			nameOffset = self.fileOffset(rva,section)
-			tempname = ""; 
+			importName = ""; 
 			self.binary.seek(nameOffset)
 			while True:
 				byte = self.binary.read(1)
 				if byte != "\x00":
-					tempname += byte
+					importName += byte
 				else:
 					break
-			imp0rt = {tempname:imp0rt}
+			imp0rt = OrderedDict({importName:imp0rt})
+			# importDescriptor = OrderedDict({importName:imp0rt})
 			oftarray = []; 
-			oftRva = int(imp0rt[tempname]["OriginalFirstThunk"],16)
+			oftRva = int(imp0rt[importName]["OriginalFirstThunk"],16)
 			oftFo = self.fileOffset(oftRva,section)
 			self.binary.seek(oftFo)
 			while True:
+				#64bit adjustments
 				if self.PE_SIG == "0x20b":
 					x = self.structer('<Q',True)["value"]
 				else:
@@ -267,15 +290,17 @@ class peinfo():
 							if byte != "\x00":
 								tempname += byte
 							else:
-								# print oftFo,tempname
 								break
 						self.binary.seek(cAddr)
 					else:
 						tempname = ""
 						hint = x[-5:]
-						# print hint
 				oftarray.append((x,hint,tempname))
-			print json.dumps(oftarray,indent=4)
+			y = OrderedDict()
+			y["TotalFunctions"] = len(oftarray); y["Functions"] = oftarray
+			imp0rt[importName].update(y)
+			finalImportList.update(imp0rt)
+		pInfo["ImportDirectory"] = finalImportList
 
 
 	# temp experimental method, much slower than the other one but better,,,, BROKEN
@@ -438,6 +463,8 @@ class peinfo():
 			pInfo['PE']['Characteristics'] = OrderedDict()
 			pInfo['PE']['Characteristics']['Signature'] = self.structer('<H',True)
 			pInfo['PE']['Characteristics']['Flags'] = self.parseCharacteristics(pInfo['PE']['Characteristics']['Signature']['value'],0)
+			#updating self type to whether dll image or executable
+			self.PE_TYPE = pInfo['PE']['Characteristics']['Flags']
 			pInfo['PE']['ImageOptionalHeader'] = OrderedDict()
 			#setting PE_SIG for 64bit adjustments
 			self.PE_SIG = self.structer('<H',True)['value']
