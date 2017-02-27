@@ -61,4 +61,4 @@ E1 E2 E3 E4 E5 E6 E7 E8 E9 EA EB EC ED EE EF F0 F1 F2 F3 F4 F5 F6 F7 F8 F9 FA FB
 '''
 
 print findBadChars(a)
-#\x04\x05\0x2e\0x2f\0x3f\0x40\0x94\0x95\0xc0\0xc1
+#keep removing one bad char at a time and send again and compare
