@@ -122,32 +122,14 @@ class peinfo():
 
 
 	def fileOffset(self,rva,section=None):
-		if section:
-			tva = int(pInfo["SECTIONS"][section]["VirtualAddress"]["value"],16)
-			tra = int(pInfo["SECTIONS"][section]["RawAddress"]["value"],16)
-			offset = rva - tva + tra
-			return offset
-		else:
-			va = 0; ra = 0;
-			sections = pInfo["SECTIONS"]
-			for section in sections:
-				tva = int(pInfo["SECTIONS"][section]["VirtualAddress"]["value"],16)
-				tra = int(pInfo["SECTIONS"][section]["RawAddress"]["value"],16)
-				sectionEnd = tra + pInfo["SECTIONS"][section]["RawSize"]["value"]
-				
-				try: 	# if dll file
-					self.PE_TYPE["0x2000"]
-					if rva >= tva and rva <= sectionEnd:
-						va = tva; ra = tra
-						break
-				except KeyError:	#	else for pe file
-					if rva <= tva:
-						va = tva; ra = tra
-						break
-
-			offset = rva - va + ra
-			return [offset,section]
-
+		sections = pInfo["SECTIONS"]
+		for section in sections:
+			va = int(pInfo["SECTIONS"][section]["VirtualAddress"]["value"],16)
+			ra = int(pInfo["SECTIONS"][section]["RawAddress"]["value"],16)
+			vsize = pInfo["SECTIONS"][section]["VirtualSize"]["value"]
+			pos = rva - va
+			if pos >= 0 and pos < vsize:
+				return pos+ra
 
 	#needs testing
 	def exportList(self,search=None,ords=False):
@@ -156,10 +138,7 @@ class peinfo():
 		except KeyError:	#	else for pe file
 			return
 		rva = int(pInfo["PE"]["ImageOptionalHeader"]["DirectoryStructures"]["ExportDirectoryRVA"]["value"],16)
-		offSetInfo = self.fileOffset(rva)
-		print offSetInfo
-		fileOffset = offSetInfo[0]
-		section = offSetInfo[1]
+		fileOffset = self.fileOffset(rva)
 		exports = OrderedDict()
 		self.binary.seek(fileOffset)
 		exports["Characteristics"] = self.structer('<I',True)
@@ -187,7 +166,7 @@ class peinfo():
 		#storing all name RVAs
 		for y in range(0,nNames):
 			rva = self.structer('<I',False)["value"]
-			fileOffset = self.fileOffset(rva,section)
+			fileOffset = self.fileOffset(rva)
 			nameFileOffset.update({y:fileOffset})
 		#storing all ordinals
 		nOrds = nFuncs - (nFuncs - nNames)
@@ -227,9 +206,7 @@ class peinfo():
 	def importList(self,search=None,ords=False):
 		rva = int(pInfo["PE"]["ImageOptionalHeader"]["DirectoryStructures"]["ImportDirectoryRVA"]["value"],16)
 		size = int(pInfo["PE"]["ImageOptionalHeader"]["DirectoryStructures"]["ImportDirectorySize"]["value"],16)
-		offSetInfo = self.fileOffset(rva)
-		fileOffset = offSetInfo[0]
-		section = offSetInfo[1]
+		fileOffset = self.fileOffset(rva)
 		end = fileOffset + size
 		self.binary.seek(fileOffset)
 		n = 0; importDescriptor = []; ssd = OrderedDict(); nulls = 0
@@ -255,7 +232,7 @@ class peinfo():
 
 		for imp0rt in importDescriptor:
 			rva = int(imp0rt["NameRVA"],16)
-			nameOffset = self.fileOffset(rva,section)
+			nameOffset = self.fileOffset(rva)
 			importName = ""; 
 			self.binary.seek(nameOffset)
 			while True:
@@ -268,7 +245,7 @@ class peinfo():
 			# importDescriptor = OrderedDict({importName:imp0rt})
 			oftarray = []; 
 			oftRva = int(imp0rt[importName]["OriginalFirstThunk"],16)
-			oftFo = self.fileOffset(oftRva,section)
+			oftFo = self.fileOffset(oftRva)
 			self.binary.seek(oftFo)
 			while True:
 				#64bit adjustments
@@ -281,7 +258,7 @@ class peinfo():
 				else:
 					if x[:4] != "0x80": #check if import by oridinal only or not
 						cAddr = self.binary.tell()
-						xFo = self.fileOffset(int(x,16),section)
+						xFo = self.fileOffset(int(x,16))
 						self.binary.seek(xFo)
 						hint = hex(struct.unpack('<H', self.binary.read(2))[0])
 						tempname = ""
@@ -752,7 +729,6 @@ class peinfo():
 			print hex(offset) + printspace + x
 			offset += 16
 		print
-
 
 x = "/Users/username/Desktop/PE.exe"
 # a = peinfo(x)
